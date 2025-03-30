@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Piano por Sensores Móvil</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Estilos personalizados */
+        #sensor-ball {
+            width: 60px;
+            height: 60px;
+            background-color: #3B82F6; /* Azul por defecto */
+            border-radius: 50%;
+            position: absolute;
+            top: 50%; /* Centrado inicial */
+            left: 50%; /* Centrado inicial */
+            transform: translate(-50%, -50%); /* Ajuste fino del centrado */
+            transition: background-color 0.3s ease; /* Transición suave de color */
+            will-change: transform; /* Optimización para animación */
+            z-index: 10;
+        }
+        /* Estilo de la bola en modo oscuro */
+        .dark #sensor-ball {
+            background-color: #60A5FA; /* Azul más claro en modo oscuro */
+        }
+        #visualizer-mode-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 100;
+        }
+        /* Modo pantalla completa para visualizador */
+        .fullscreen-mode {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: #111827; /* Fondo más oscuro para visualizador */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 50;
+            overflow: hidden;
+        }
+        .fullscreen-mode #app {
+            display: none; /* Ocultar controles normales en modo visualizador */
+        }
+        .fullscreen-mode #sensor-ball {
+            position: relative; /* Posición relativa dentro del contenedor flex */
+            top: auto;
+            left: auto;
+            transform: none;
+            width: 150px; /* Bola más grande en visualizador */
+            height: 150px;
+            background-color: #EC4899; /* Color diferente en visualizador */
+        }
+        .fullscreen-mode #visualizer-mode-btn {
+             background-color: #D1D5DB; /* Color diferente para salir */
+             color: #1F2937;
+        }
+
+        /* Estilo del botón de escala seleccionada */
+        .selected-scale {
+            background-color: #BFDBFE !important;
+            color: #1E40AF;
+            font-weight: 600;
+            border: 1px solid #93C5FD;
+        }
+        .dark .selected-scale {
+            background-color: #1E40AF !important;
+            color: #BFDBFE;
+             border: 1px solid #3B82F6;
+        }
+
+        /* Ocultar el scrollbar */
+        body {
+             scrollbar-width: none; /* Firefox */
+             -ms-overflow-style: none;  /* Internet Explorer 10+ */
+        }
+        body::-webkit-scrollbar { /* WebKit */
+            width: 0;
+            height: 0;
+        }
+
+    </style>
+    <script>
+        // Preferencia de modo oscuro del sistema
+        if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+          document.documentElement.classList.add('dark')
+        } else {
+          document.documentElement.classList.remove('dark')
+        }
+    </script>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 min-h-screen font-sans transition-colors duration-300">
+    <div id="app" class="container mx-auto px-4 py-8">
+        <header class="mb-8 text-center">
+            <h1 class="text-3xl sm:text-4xl font-bold mb-2 text-blue-700 dark:text-blue-400">Piano con Sensores Móviles</h1>
+            <p class="text-lg text-gray-700 dark:text-gray-300">Controla el sonido con el movimiento de tu dispositivo.</p>
+            <p class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                Inclina hacia <strong class="font-semibold">adelante/atrás</strong> (eje Beta) para controlar el <strong class="font-semibold">Volumen</strong>.<br>
+                Inclina hacia <strong class="font-semibold">izquierda/derecha</strong> (eje Gamma) para controlar la <strong class="font-semibold">Frecuencia/Nota</strong>.
+            </p>
+            <p class="text-xs mt-4 text-gray-500 dark:text-gray-500">Creado por Manuel Puebla Vega</p>
+        </header>
+
+        <!-- Mensajes de estado -->
+        <div id="status-message" class="max-w-3xl mx-auto text-center mb-4 p-3 rounded-lg text-sm"></div>
+
+        <div id="controls" class="max-w-3xl mx-auto bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6 mb-8 transition-colors duration-300">
+
+            <!-- Estado y Controles Principales -->
+            <div class="mb-6 bg-gray-100 dark:bg-gray-700 p-4 rounded-lg shadow-inner">
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <div class="text-center">
+                        <h3 class="font-medium text-sm text-gray-600 dark:text-gray-400">Frecuencia / Nota</h3>
+                        <div id="frequency-display" class="text-xl sm:text-2xl font-semibold text-blue-700 dark:text-blue-400">-</div>
+                    </div>
+                    <div class="text-center">
+                        <h3 class="font-medium text-sm text-gray-600 dark:text-gray-400">Volumen</h3>
+                        <div id="volume-display" class="text-xl sm:text-2xl font-semibold text-blue-700 dark:text-blue-400">0%</div>
+                    </div>
+                </div>
+                <div class="flex justify-center space-x-4">
+                    <button id="start-btn" class="px-5 py-2 sm:px-6 sm:py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg text-base sm:text-lg font-semibold transition duration-200 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed">
+                        ▶ Iniciar
+                    </button>
+                    <button id="stop-btn" class="px-5 py-2 sm:px-6 sm:py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg text-base sm:text-lg font-semibold transition duration-200 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                        ■ Detener
+                    </button>
+                </div>
+            </div>
+
+            <!-- Selector de modo de sonido -->
+            <div class="mb-6">
+                <h2 class="text-lg sm:text-xl font-semibold mb-3 text-center text-gray-800 dark:text-gray-200">Modo de Sonido</h2>
+                <div class="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4">
+                    <button id="wave-mode-btn" data-mode="wave" class="sound-mode-btn px-4 py-2 rounded-lg flex-1 transition duration-200 ease-in-out">
+                        Onda Sinusoidal
+                    </button>
+                    <button id="piano-mode-btn" data-mode="piano" class="sound-mode-btn px-4 py-2 rounded-lg flex-1 transition duration-200 ease-in-out">
+                        Piano (Simple)
+                    </button>
+                </div>
+            </div>
+
+            <!-- Opciones de escala (solo para modo piano) -->
+            <div id="scale-options" class="mb-6 hidden">
+                <h2 class="text-lg sm:text-xl font-semibold mb-3 text-center text-gray-800 dark:text-gray-200">Escala Musical</h2>
+                <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    <button data-scale="chromatic" class="scale-btn selected-scale px-3 py-2 bg-gray-200 dark:bg-gray-700 rounded-lg text-sm sm:text-base transition duration-200 ease-in-out">
+                        Cromática
+                    </button>
+                    <button data-scale="major" class="scale-btn px-3 py-2 bg-gray-200 dark:bg-gray-700 rounded-lg text-sm sm:text-base transition duration-200 ease-in-out">
+                        Mayor
+                    </button>
+                    <button data-scale="minor" class="scale-btn px-3 py-2 bg-gray-200 dark:bg-gray-700 rounded-lg text-sm sm:text-base transition duration-200 ease-in-out">
+                        Menor
+                    </button>
+                    <button data-scale="pentatonic" class="scale-btn px-3 py-2 bg-gray-200 dark:bg-gray-700 rounded-lg text-sm sm:text-base transition duration-200 ease-in-out">
+                        Pentatónica M
+                    </button>
+                     <button data-scale="minor_pentatonic" class="scale-btn px-3 py-2 bg-gray-200 dark:bg-gray-700 rounded-lg text-sm sm:text-base transition duration-200 ease-in-out">
+                        Pentatónica m
+                    </button>
+                    <button data-scale="blues" class="scale-btn px-3 py-2 bg-gray-200 dark:bg-gray-700 rounded-lg text-sm sm:text-base transition duration-200 ease-in-out">
+                        Blues
+                    </button>
+                    <button data-scale="dorian" class="scale-btn px-3 py-2 bg-gray-200 dark:bg-gray-700 rounded-lg text-sm sm:text-base transition duration-200 ease-in-out">
+                        Dórica
+                    </button>
+                </div>
+            </div>
+
+             <!-- Visualización del sensor -->
+             <div class="relative bg-gray-200 dark:bg-gray-600 rounded-lg p-2 overflow-hidden shadow-inner" style="height: 200px;">
+                 <div class="absolute inset-0 flex justify-center items-center">
+                     <span class="text-xs text-gray-500 dark:text-gray-400">Área de Sensores</span>
+                 </div>
+                 <div id="sensor-ball-container" class="absolute inset-0">
+                    <div id="sensor-ball"></div>
+                 </div>
+             </div>
+        </div>
+    </div>
+
+    <!-- Botón flotante para modo visualizador -->
+    <button id="visualizer-mode-btn" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg shadow-lg transition duration-200 ease-in-out">
+        Modo Visualización
+    </button>
+
+    <script>
+        // --- VARIABLES GLOBALES ---
+        let audioContext;
+        let mainGainNode; // Nodo de ganancia principal para controlar volumen general si es necesario
+        let oscillator;
+        let isPlaying = false;
+        let isVisualizerMode = false;
+        let currentFrequency = 440; // Frecuencia inicial (A4)
+        let currentVolume = 0.0; // Empezar en silencio
+        let soundMode = 'wave'; // 'wave' o 'piano'
+        let currentScale = 'chromatic';
+        let activePianoNote = null; // Guarda la instancia de la nota de piano activa
+        let currentNoteIndex = null; // Guarda el índice de la nota actual en la escala
+        let orientationHandler = null;
+        let permissionGranted = false;
+        let animationFrameId = null; // Para controlar el bucle de animación
+
+        // Escalas musicales (semitonos desde la tónica, C por defecto)
+        // Se añade Pentatónica Menor
+        const scales = {
+            chromatic: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], // 12 notas
+            major: [0, 2, 4, 5, 7, 9, 11],                     // 7 notas
+            minor: [0, 2, 3, 5, 7, 8, 10],                     // 7 notas
+            pentatonic: [0, 2, 4, 7, 9],                      // 5 notas (Mayor)
+            minor_pentatonic: [0, 3, 5, 7, 10],               // 5 notas (Menor)
+            blues: [0, 3, 5, 6, 7, 10],                        // 6 notas
+            dorian: [0, 2, 3, 5, 7, 9, 10]                      // 7 notas
+        };
+        const baseFrequency = 261.63; // Frecuencia de C4 como base para piano
+        const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+
+        // --- ELEMENTOS DEL DOM ---
+        const startBtn = document.getElementById('start-btn');
+        const stopBtn = document.getElementById('stop-btn');
+        const visualizerModeBtn = document.getElementById('visualizer-mode-btn');
+        const frequencyDisplay = document.getElementById('frequency-display');
+        const volumeDisplay = document.getElementById('volume-display');
+        const sensorBallContainer = document.getElementById('sensor-ball-container');
+        const sensorBall = document.getElementById('sensor-ball');
+        const scaleOptions = document.getElementById('scale-options');
+        const statusMessage = document.getElementById('status-message');
+        const soundModeButtons = document.querySelectorAll('.sound-mode-btn');
+        const scaleButtons = document.querySelectorAll('.scale-btn');
+
+        // --- FUNCIONES DE AUDIO ---
+
+        // Inicializa el AudioContext (debe ser llamado por interacción del usuario)
+        function initAudioContext() {
+            if (!audioContext) {
+                try {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    mainGainNode = audioContext.createGain();
+                    mainGainNode.gain.value = 0.8; // Volumen maestro general (opcional)
+                    mainGainNode.connect(audioContext.destination);
+                    console.log("AudioContext inicializado.");
+                    // Si estaba suspendido (ej. por carga inicial), intentar reanudarlo
+                    if (audioContext.state === 'suspended') {
+                        audioContext.resume().then(() => console.log("AudioContext reanudado."));
+                    }
+                } catch (e) {
+                    console.error("Error al crear AudioContext:", e);
+                    showStatusMessage("Error: No se pudo inicializar el audio.", "error");
+                    return false;
+                }
+            } else if (audioContext.state === 'suspended') {
+                 audioContext.resume().then(() => console.log("AudioContext reanudado."));
+            }
+            return true;
+        }
+
+        // Iniciar la reproducción de sonido
+        async function startAudio() {
+            if (isPlaying) return;
+            if (!initAudioContext()) return; // Asegurarse que el contexto está listo
+             if (!permissionGranted) {
+                showStatusMessage("Por favor, permite el acceso a los sensores.", "warning");
+                // Intentar pedir permiso de nuevo al hacer clic en start si no se concedió antes
+                await requestSensorPermission();
+                if (!permissionGranted) return; // Salir si sigue sin permiso
+             }
+
+            // Reanudar contexto por si acaso
+             if (audioContext.state === 'suspended') {
+                await audioContext.resume();
+            }
+            if (audioContext.state !== 'running') {
+                 showStatusMessage("El contexto de audio no está activo.", "error");
+                 return;
+            }
+
+            if (soundMode === 'wave') {
+                if (!oscillator) {
+                    oscillator = audioContext.createOscillator();
+                    oscillator.type = 'sine';
+                    // Usamos el gain principal
+                    oscillator.connect(mainGainNode);
+                    oscillator.frequency.setValueAtTime(currentFrequency, audioContext.currentTime);
+                    mainGainNode.gain.setValueAtTime(currentVolume, audioContext.currentTime); // Empezar con el volumen actual
+                    oscillator.start();
+                    console.log("Oscilador iniciado.");
+                }
+            } else {
+                // En modo piano, el sonido se genera en handleOrientation
+                currentNoteIndex = null; // Reiniciar nota activa
+            }
+
+            isPlaying = true;
+            showStatusMessage("Sonido Activado. Mueve tu dispositivo.", "success");
+            updateUI();
+            setupOrientationListener(); // Asegurarse de que el listener está activo
+            startAnimationLoop(); // Iniciar bucle de animación para la bola
+        }
+
+        // Detener la reproducción de sonido
+        function stopAudio() {
+            if (!isPlaying) return;
+
+            if (oscillator) {
+                oscillator.stop();
+                oscillator.disconnect();
+                oscillator = null;
+                console.log("Oscilador detenido.");
+            }
+
+            if (activePianoNote) {
+                activePianoNote.stop();
+                activePianoNote = null;
+                console.log("Nota de piano detenida.");
+            }
+
+            // Resetear valores
+            currentFrequency = 440;
+            currentVolume = 0.0;
+            currentNoteIndex = null;
+            frequencyDisplay.textContent = '-';
+            volumeDisplay.textContent = '0%';
+
+            isPlaying = false;
+            showStatusMessage("Sonido Detenido.", "info");
+            updateUI();
+            // No quitamos el listener de orientación aquí, sólo dejamos de procesar el audio
+            // removeOrientationListener(); // Descomentar si se prefiere detener el sensor completamente
+             stopAnimationLoop(); // Detener bucle de animación
+        }
+
+        // Crear un sonido simple de piano sintetizado
+        function createPianoSound(frequency, volume) {
+            if (!audioContext || audioContext.state !== 'running') return null;
+
+            const now = audioContext.currentTime;
+            const attackTime = 0.01;
+            const decayTime = 0.1;
+            const sustainLevel = 0.3;
+            const releaseTime = 0.8; // Tiempo más largo para simular pedal
+
+            const noteGain = audioContext.createGain();
+            noteGain.connect(mainGainNode); // Conectar al gain principal
+
+            // Envolvente ADSR simple
+            noteGain.gain.setValueAtTime(0, now);
+            noteGain.gain.linearRampToValueAtTime(volume, now + attackTime); // Attack
+            noteGain.gain.exponentialRampToValueAtTime(volume * sustainLevel, now + attackTime + decayTime); // Decay to Sustain
+
+            // Osciladores (simple: fundamental + armónico)
+            const osc1 = audioContext.createOscillator();
+            osc1.type = 'triangle'; // Fundamental
+            osc1.frequency.setValueAtTime(frequency, now);
+            osc1.connect(noteGain);
+            osc1.start(now);
+
+            const osc2 = audioContext.createOscillator();
+            osc2.type = 'sine'; // Armónico
+            osc2.frequency.setValueAtTime(frequency * 2, now);
+            osc2.connect(noteGain);
+            osc2.start(now);
+
+            let stopped = false;
+
+            // Función para detener la nota con release
+            const stop = () => {
+                if (stopped || !audioContext || audioContext.state !== 'running') return;
+                stopped = true;
+                const stopTime = audioContext.currentTime;
+                 // Cancelar ramps programadas y aplicar release
+                noteGain.gain.cancelScheduledValues(stopTime);
+                noteGain.gain.setValueAtTime(noteGain.gain.value, stopTime); // Mantener valor actual
+                noteGain.gain.exponentialRampToValueAtTime(0.0001, stopTime + releaseTime); // Release
+
+                // Detener osciladores después del release
+                osc1.stop(stopTime + releaseTime + 0.1);
+                osc2.stop(stopTime + releaseTime + 0.1);
+                // Desconectar después de detener para limpieza
+                 setTimeout(() => {
+                    if(osc1) osc1.disconnect();
+                    if(osc2) osc2.disconnect();
+                    if(noteGain) noteGain.disconnect();
+                 }, (releaseTime + 0.2) * 1000);
+            };
+
+            // Función para actualizar el volumen (afecta la parte de sustain/release)
+             const setVolume = (vol) => {
+                 if (!stopped && audioContext && audioContext.state === 'running') {
+                     // Ajusta el nivel de sustain relativo al nuevo volumen máximo
+                     // Nota: Esto es una simplificación. Una envolvente real es más compleja.
+                     // Podríamos ajustar el valor actual si está en la fase de sustain/decay
+                     // Por simplicidad, sólo afectamos el volumen general via noteGain
+                     // O podríamos replantear la envolvente, pero mantengamos simple por ahora.
+                     // Una aproximación: escalar el valor actual de la ganancia.
+                      const currentGain = noteGain.gain.value;
+                      const targetGainSustain = vol * sustainLevel;
+                      // Si estamos decayendo/sosteniendo, ajustamos hacia el nuevo nivel de sustain
+                      if (audioContext.currentTime > now + attackTime) {
+                          noteGain.gain.cancelScheduledValues(audioContext.currentTime);
+                          noteGain.gain.setTargetAtTime(targetGainSustain, audioContext.currentTime, 0.01); // Transición suave
+                      }
+                 }
+             };
+
+
+            return { stop, setVolume };
+        }
+
+
+        // --- MANEJO DE SENSORES ---
+
+         // Pedir permiso para sensores de orientación
+         async function requestSensorPermission() {
+            if (typeof DeviceOrientationEvent === 'undefined' || typeof DeviceOrientationEvent.requestPermission !== 'function') {
+                // No es iOS 13+ o no es necesario pedir permiso explícito
+                 if ('DeviceOrientationEvent' in window) {
+                    console.log("Permiso de sensor no requerido o ya concedido implícitamente.");
+                    permissionGranted = true;
+                    showStatusMessage("Sensores listos (permiso no requerido).", "info");
+                    return true;
+                 } else {
+                    console.warn("DeviceOrientationEvent no soportado por este navegador.");
+                    showStatusMessage("Error: Los sensores de orientación no son compatibles con tu navegador.", "error");
+                    permissionGranted = false;
+                    return false;
+                 }
+            }
+
+            try {
+                const permissionState = await DeviceOrientationEvent.requestPermission();
+                if (permissionState === 'granted') {
+                    console.log("Permiso de sensor concedido.");
+                    permissionGranted = true;
+                    showStatusMessage("Permiso de sensor concedido.", "success");
+                     return true;
+                } else {
+                    console.warn("Permiso de sensor denegado.");
+                    permissionGranted = false;
+                    showStatusMessage("Permiso de sensor denegado. Funcionalidad limitada.", "warning");
+                    return false;
+                }
+            } catch (error) {
+                console.error("Error al solicitar permiso de sensor:", error);
+                permissionGranted = false;
+                showStatusMessage("Error al solicitar permiso de sensor.", "error");
+                return false;
+            }
+        }
+
+
+        // Configurar listener de orientación
+        function setupOrientationListener() {
+             if (!permissionGranted) {
+                 console.log("No se configura listener: permiso no concedido.");
+                 return; // No añadir listener si no hay permiso
+             }
+            if (!orientationHandler && window.DeviceOrientationEvent) {
+                orientationHandler = (event) => handleOrientation(event);
+                window.addEventListener('deviceorientation', orientationHandler);
+                console.log("Listener de orientación añadido.");
+            } else if (!window.DeviceOrientationEvent){
+                 console.warn("DeviceOrientationEvent no soportado tras la verificación inicial.");
+                 showStatusMessage("Error: Los sensores de orientación dejaron de estar disponibles.", "error");
+            }
+        }
+
+        // Remover listener de orientación
+        function removeOrientationListener() {
+            if (orientationHandler) {
+                window.removeEventListener('deviceorientation', orientationHandler);
+                orientationHandler = null;
+                console.log("Listener de orientación removido.");
+            }
+        }
+
+         // Variables para suavizar movimiento de la bola
+        let targetX = 50, targetY = 50;
+        let currentX = 50, currentY = 50;
+
+        // Bucle de animación para la bola del sensor
+        function animationLoop() {
+            // Interpolar suavemente hacia la posición objetivo
+            currentX += (targetX - currentX) * 0.2;
+            currentY += (targetY - currentY) * 0.2;
+
+            // Aplicar transformación (centrando la bola)
+            sensorBall.style.transform = `translate(calc(${currentX}% - 50%), calc(${currentY}% - 50%))`;
+
+            // Continuar el bucle
+            animationFrameId = requestAnimationFrame(animationLoop);
+        }
+
+        function startAnimationLoop() {
+            if (!animationFrameId) {
+                animationLoop();
+            }
+        }
+
+        function stopAnimationLoop() {
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = null;
+                // Resetear posición visual al centro
+                sensorBall.style.transform = `translate(-50%, -50%)`;
+                currentX = 50; currentY = 50; targetX = 50; targetY = 50;
+            }
+        }
+
+
+        // Manejar datos de orientación del dispositivo
+        function handleOrientation(event) {
+            // alpha: Rotación alrededor del eje Z (0-360) - No usado aquí
+            // beta: Inclinación adelante/atrás (-180 a 180). 0 es plano. Positivo es inclinar hacia el usuario.
+            // gamma: Inclinación izquierda/derecha (-90 a 90). 0 es plano. Positivo es inclinar hacia la derecha.
+            const beta = event.beta;
+            const gamma = event.gamma;
+
+            if (beta === null || gamma === null) {
+                console.warn("Datos de orientación incompletos.");
+                showStatusMessage("Advertencia: Datos de sensor incompletos.", "warning");
+                return;
+            }
+
+            // --- Actualización Visual de la Bola ---
+            // Mapear gamma (-90 a 90) a X (0% a 100%)
+            targetX = ((gamma + 90) / 180) * 100;
+            // Mapear beta (-90 a 90 - rango práctico común) a Y (0% a 100%)
+            // Clamp beta a un rango usable, por ejemplo -90 a 90
+            const clampedBeta = Math.max(-90, Math.min(90, beta));
+            targetY = ((clampedBeta + 90) / 180) * 100;
+
+            // La actualización real de la posición se hace en animationLoop()
+
+             // --- Control de Audio (solo si está reproduciendo y no en modo visualizador) ---
+            if (!isPlaying || isVisualizerMode || !audioContext || audioContext.state !== 'running') return;
+
+            // Calcular Volumen (usando Beta: inclinación adelante/atrás)
+            // Mapear beta (ej. -60 a 60) a volumen (0 a 1)
+            const volumeRange = 120; // -60 a +60
+            const normalizedBeta = Math.max(-60, Math.min(60, beta)); // Limitar rango
+            currentVolume = (normalizedBeta + 60) / volumeRange;
+            currentVolume = Math.pow(currentVolume, 1.5); // Curva más sensible al inicio
+            volumeDisplay.textContent = Math.round(currentVolume * 100) + '%';
+
+             // Aplicar volumen al nodo de ganancia principal (para modo onda)
+             if (mainGainNode) {
+                mainGainNode.gain.setTargetAtTime(currentVolume, audioContext.currentTime, 0.05); // Suavizar cambio de volumen
+             }
+
+
+            // Calcular Frecuencia/Nota (usando Gamma: inclinación izquierda/derecha)
+            if (soundMode === 'wave') {
+                // Mapear gamma (-90 a 90) a un rango de frecuencia (ej. 100Hz a 1000Hz)
+                const freqRange = 900; // 1000 - 100
+                const baseFreq = 100;
+                // Mapeo lineal:
+                // currentFrequency = baseFreq + ((gamma + 90) / 180) * freqRange;
+                // Mapeo exponencial (más musical):
+                 const semitonesRange = 36; // 3 octavas
+                 currentFrequency = 110 * Math.pow(2, ((gamma + 90) / 180) * semitonesRange / 12);
+
+                if (oscillator) {
+                    oscillator.frequency.setTargetAtTime(currentFrequency, audioContext.currentTime, 0.05); // Suavizar cambio
+                }
+                frequencyDisplay.textContent = currentFrequency.toFixed(1) + ' Hz';
+
+            } else { // soundMode === 'piano'
+                const scale = scales[currentScale];
+                const noteCount = scale.length;
+                // Mapear gamma (-60 a 60 grados, por ejemplo) a índice de nota
+                const tiltRange = 120; // -60 a 60
+                const normalizedGamma = Math.max(-60, Math.min(60, gamma));
+                // Usamos floor para obtener un índice discreto
+                 const noteIndexInScale = Math.floor(((normalizedGamma + 60) / tiltRange) * noteCount);
+                 // Asegurarse de que el índice esté dentro de los límites (puede ser noteCount justo en el límite)
+                const safeNoteIndexInScale = Math.min(noteCount - 1, noteIndexInScale);
+
+                const semitoneOffset = scale[safeNoteIndexInScale]; // Semitono relativo a la tónica (C4)
+                const targetNoteIndex = semitoneOffset; // Índice absoluto (0=C4, 1=C#4, etc.)
+
+                 // Comprobar si la nota ha cambiado
+                if (targetNoteIndex !== currentNoteIndex) {
+                    // Detener la nota anterior si existía
+                    if (activePianoNote) {
+                        activePianoNote.stop();
+                         console.log(`Stopping previous note: ${noteNames[currentNoteIndex % 12]}`);
+                        activePianoNote = null; // Marcar como detenida
+                    }
+
+                    // Calcular la nueva frecuencia (Octava 4 por defecto)
+                    const octave = 4;
+                    const midiNote = 60 + semitoneOffset; // 60 es C4 en MIDI
+                    currentFrequency = baseFrequency * Math.pow(2, semitoneOffset / 12);
+
+                    // Iniciar la nueva nota
+                    activePianoNote = createPianoSound(currentFrequency, currentVolume);
+                    currentNoteIndex = targetNoteIndex; // Actualizar la nota activa
+
+                    const noteName = noteNames[targetNoteIndex % 12];
+                    frequencyDisplay.innerHTML = `${noteName}<span class="text-xs align-top">${octave}</span>`;
+                     console.log(`Starting new note: ${noteName}${octave} (Freq: ${currentFrequency.toFixed(2)}Hz)`);
+
+                } else if (activePianoNote) {
+                     // Si la nota es la misma, solo actualizar el volumen (si es necesario)
+                    // La función setVolume en createPianoSound es una simplificación
+                    // activePianoNote.setVolume(currentVolume); // Descomentar si se implementa bien
+                    // Por ahora, el volumen general se controla con mainGainNode, que afecta a todo.
+                }
+            }
+        }
+
+        // --- FUNCIONES DE UI ---
+
+        // Actualizar estado de botones y visibilidad de opciones
+        function updateUI() {
+            startBtn.disabled = isPlaying;
+            stopBtn.disabled = !isPlaying;
+
+            // Estilo botones de modo de sonido
+            soundModeButtons.forEach(btn => {
+                const mode = btn.dataset.mode;
+                if (mode === soundMode) {
+                    btn.classList.add('bg-blue-600', 'text-white', 'dark:bg-blue-500');
+                    btn.classList.remove('bg-gray-300', 'dark:bg-gray-600', 'text-gray-800', 'dark:text-gray-200');
+                } else {
+                    btn.classList.remove('bg-blue-600', 'text-white', 'dark:bg-blue-500');
+                    btn.classList.add('bg-gray-300', 'dark:bg-gray-600', 'text-gray-800', 'dark:text-gray-200');
+                }
+            });
+
+            // Mostrar/ocultar opciones de escala
+            scaleOptions.classList.toggle('hidden', soundMode !== 'piano');
+
+            // Estilo botones de escala
+            scaleButtons.forEach(btn => {
+                const scale = btn.dataset.scale;
+                btn.classList.toggle('selected-scale', scale === currentScale);
+                 if (scale !== currentScale) {
+                     btn.classList.remove('selected-scale'); // Asegurarse que se quita si no es la actual
+                 }
+            });
+        }
+
+        // Alternar modo visualización
+        function toggleVisualizerMode() {
+            isVisualizerMode = !isVisualizerMode;
+            document.body.classList.toggle('fullscreen-mode', isVisualizerMode);
+            visualizerModeBtn.textContent = isVisualizerMode ? 'Salir de Visualización' : 'Modo Visualización';
+
+             if (isVisualizerMode) {
+                 // Opcional: Detener audio al entrar en modo visualización si se prefiere
+                 // if (isPlaying) stopAudio();
+                showStatusMessage("Modo Visualización Activado.", "info");
+                 // Asegurarse de que la animación de la bola esté activa si los sensores lo están
+                 if (permissionGranted && orientationHandler) {
+                     startAnimationLoop();
+                 } else {
+                    // Si no hay sensores, mostrar bola estática en el centro
+                    sensorBall.style.transform = `translate(-50%, -50%)`;
+                 }
+
+            } else {
+                showStatusMessage("Controles visibles.", "info");
+                // Si el audio estaba sonando, la bola debería seguir moviéndose via handleOrientation
+                 if (isPlaying) {
+                     startAnimationLoop();
+                 } else {
+                     stopAnimationLoop(); // Detener animación si no está sonando
+                 }
+            }
+        }
+
+        // Cambiar modo de sonido
+        function setSoundMode(mode) {
+            if (soundMode === mode) return; // No hacer nada si ya está en ese modo
+
+            // Detener sonido actual antes de cambiar
+            if (isPlaying) {
+                 stopAudio();
+            }
+
+            soundMode = mode;
+            console.log(`Cambiado a modo: ${soundMode}`);
+            frequencyDisplay.textContent = '-'; // Resetear display
+
+            // Si se cambia a modo piano, asegurarse de resetear la nota
+            if (soundMode === 'piano') {
+                currentNoteIndex = null;
+                activePianoNote = null;
+            } else {
+                // Si se cambia a modo onda, limpiar referencia a nota piano
+                 activePianoNote = null;
+                 currentNoteIndex = null;
+            }
+
+            updateUI();
+             // Opcional: Reiniciar audio automáticamente al cambiar de modo si estaba sonando antes
+             // if (wasPlaying) startAudio();
+        }
+
+        // Cambiar escala musical
+        function setScale(scale) {
+            if (currentScale === scale) return;
+
+             const wasPlaying = isPlaying;
+             if (isPlaying) {
+                 stopAudio(); // Detener para evitar notas incorrectas al cambiar escala
+             }
+
+            currentScale = scale;
+            console.log(`Escala cambiada a: ${currentScale}`);
+            currentNoteIndex = null; // Resetear nota al cambiar escala
+
+            updateUI(); // Actualiza el botón seleccionado
+
+             // Opcional: reiniciar si estaba sonando
+             // if (wasPlaying) startAudio();
+        }
+
+         // Mostrar mensajes de estado/error
+         function showStatusMessage(message, type = "info") {
+             statusMessage.textContent = message;
+             statusMessage.className = "max-w-3xl mx-auto text-center mb-4 p-3 rounded-lg text-sm "; // Reset classes
+
+             switch (type) {
+                 case "success":
+                     statusMessage.classList.add("bg-green-100", "dark:bg-green-900", "text-green-800", "dark:text-green-200");
+                     break;
+                 case "error":
+                     statusMessage.classList.add("bg-red-100", "dark:bg-red-900", "text-red-800", "dark:text-red-200");
+                     break;
+                 case "warning":
+                     statusMessage.classList.add("bg-yellow-100", "dark:bg-yellow-900", "text-yellow-800", "dark:text-yellow-200");
+                     break;
+                 case "info":
+                 default:
+                     statusMessage.classList.add("bg-blue-100", "dark:bg-blue-900", "text-blue-800", "dark:text-blue-200");
+                     break;
+             }
+             statusMessage.style.display = 'block';
+         }
+
+
+        // --- INICIALIZACIÓN Y EVENT LISTENERS ---
+
+        document.addEventListener('DOMContentLoaded', () => {
+            updateUI(); // Establecer estado inicial de la UI
+
+             // Pedir permiso de sensores al cargar (mejor si es tras interacción)
+             // await requestSensorPermission();
+             // setupOrientationListener(); // Configurar listener si ya hay permiso
+
+             showStatusMessage("Listo. Presiona 'Iniciar' y permite acceso a sensores si se solicita.", "info");
+
+            startBtn.addEventListener('click', async () => {
+                 // Pedir permiso aquí, al hacer clic, es mejor práctica
+                 if (!permissionGranted) {
+                    await requestSensorPermission();
+                 }
+                 startAudio(); // Intentar iniciar audio (verificará permiso dentro)
+             });
+
+            stopBtn.addEventListener('click', stopAudio);
+            visualizerModeBtn.addEventListener('click', toggleVisualizerMode);
+
+            soundModeButtons.forEach(btn => {
+                btn.addEventListener('click', () => setSoundMode(btn.dataset.mode));
+            });
+
+            scaleButtons.forEach(btn => {
+                btn.addEventListener('click', () => setScale(btn.dataset.scale));
+            });
+
+            // Intento de inicializar/reanudar AudioContext con interacción temprana
+            const initAudioOnInteraction = () => {
+                 initAudioContext();
+                 // Remover este listener una vez que se interactúa
+                 document.body.removeEventListener('touchstart', initAudioOnInteraction);
+                 document.body.removeEventListener('click', initAudioOnInteraction);
+            };
+            document.body.addEventListener('touchstart', initAudioOnInteraction, { once: true });
+             // Añadir click también como respaldo para dispositivos sin touch
+            document.body.addEventListener('click', initAudioOnInteraction, { once: true });
+
+            // Manejar cambios de visibilidad de la pestaña
+            document.addEventListener('visibilitychange', () => {
+                if (!audioContext) return;
+                if (document.hidden) {
+                    // Si se oculta la pestaña, suspender audio para ahorrar batería/recursos
+                    // Podríamos detener completamente stopAudio() o solo suspender
+                    audioContext.suspend().then(() => console.log("AudioContext suspendido por visibilidad."));
+                     // Opcional: Detener completamente para resetear estado
+                     // if (isPlaying) stopAudio();
+                } else {
+                    // Si se vuelve visible y estaba sonando, intentar reanudar
+                    // if (isPlaying) { // Solo reanudar si se supone que debe estar sonando
+                       if (audioContext.state === 'suspended') {
+                           audioContext.resume().then(() => console.log("AudioContext reanudado por visibilidad."));
+                       }
+                    // }
+                }
+            });
+
+             // Listener para detectar si los sensores están realmente disponibles
+             window.addEventListener('deviceorientation', function checkSensorAvailability(event) {
+                 if (event.alpha !== null || event.beta !== null || event.gamma !== null) {
+                      console.log("Sensores de orientación detectados y funcionando.");
+                      // Si no teníamos permiso formal pero los eventos llegan, asumimos que está ok
+                      if (!permissionGranted && !DeviceOrientationEvent.requestPermission) {
+                          permissionGranted = true;
+                          if (!orientationHandler) setupOrientationListener(); // Configurar si no estaba listo
+                      }
+                 }
+                 // Remover este listener de chequeo después de la primera detección
+                 window.removeEventListener('deviceorientation', checkSensorAvailability);
+             }, { once: true });
+
+        });
+
+    </script>
+</body>
+</html>
